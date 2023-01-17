@@ -19,6 +19,9 @@
 
 import warnings
 import numpy as np
+import os
+import logging
+log = logging.getLogger(__name__)
 
 from tvm import relay
 import tvm._ffi
@@ -155,6 +158,7 @@ def partition_for_vitis_ai(mod, params=None, dpu=None, **opts):
     -------
     ret : Module
     """
+    log.info("Start vitis partitioning in %r.", os.path.abspath(__file__))
 
     if dpu is None:
         raise ValueError("Please pass Vitis AI DPU identifier to the partitioning function")
@@ -172,20 +176,63 @@ def partition_for_vitis_ai(mod, params=None, dpu=None, **opts):
         "nn.upsampling": ["NCHW"],
         "image.resize2d": ["NCHW"],
     }
-    seq = tvm.transform.Sequential(
-        [
-            transform.RemoveUnusedFunctions(),
-            transform.ConvertLayout(desired_layouts_in_partition),
-            transform.FoldConstant(),
-            transform.InferType(),
-            VitisAIAnnotationPass("vitis_ai", dpu, params),
-            transform.MergeCompilerRegions(),
-            transform.PartitionGraph(),
-            transform.RemoveUnusedFunctions(),
-            transform.ConvertLayout(desired_layouts_in_main),
-            transform.FoldConstant(),
-        ]
-    )
+    if logging.DEBUG < logging.root.level:
+        seq = tvm.transform.Sequential(
+            [
+                transform.RemoveUnusedFunctions(),
+                transform.ConvertLayout(desired_layouts_in_partition),
+                transform.FoldConstant(),
+                transform.InferType(),
+                VitisAIAnnotationPass("vitis_ai", dpu, params),
+                transform.MergeCompilerRegions(),
+                transform.PartitionGraph(),
+                transform.RemoveUnusedFunctions(),
+                transform.ConvertLayout(desired_layouts_in_main),
+                transform.FoldConstant(),
+            ]
+        )
 
-    with tvm.transform.PassContext(opt_level=3):
-        return seq(mod)
+        with tvm.transform.PassContext(opt_level=3):
+            return seq(mod)
+
+    else:
+        log.debug("Apply transforms one by one....")
+        pre_partition = tvm.transform.Sequential(
+            [
+                transform.RemoveUnusedFunctions(),
+                transform.ConvertLayout(desired_layouts_in_partition),
+                transform.FoldConstant(),
+            ]
+        )
+        types = tvm.transform.Sequential([transform.InferType(),])
+        annotate = tvm.transform.Sequential([VitisAIAnnotationPass("vitis_ai", dpu, params),])
+        merge = tvm.transform.Sequential([transform.MergeCompilerRegions(),])
+        partition = tvm.transform.Sequential([transform.PartitionGraph(),])
+        post_partition = tvm.transform.Sequential(
+            [
+                transform.RemoveUnusedFunctions(),
+                transform.ConvertLayout(desired_layouts_in_main),
+                transform.FoldConstant(),
+            ]
+        )
+
+        with tvm.transform.PassContext(opt_level=3):
+            log.debug("Model before transforms")
+            log.debug(mod)
+            mod_prep = pre_partition(mod)
+            log.debug("Model after pre partition transforms")
+            log.debug(mod_prep)
+            mod_type = types(mod_prep)
+            mod_annotate = annotate(mod_type)
+            log.debug("Model after annotation")
+            log.debug(mod_annotate)
+            mod_merge = merge(mod_annotate)
+            log.debug("Model after merge")
+            log.debug(mod_merge)
+            mod_partition = partition(mod_merge)
+            log.debug("Model after partition")
+            log.debug(mod_partition)
+            mod_postp = post_partition(mod_partition)
+            log.debug("Model after transforms")
+            log.debug(mod_postp)
+            return mod_postp
