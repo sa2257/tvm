@@ -21,7 +21,7 @@ import warnings
 import numpy as np
 import os
 import logging
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 from tvm import relay
 import tvm._ffi
@@ -110,9 +110,11 @@ class VitisAIAnnotationPass:
                 else:
                     return super().visit_call(call)
 
+        logger.info("Convert relay to pyxir xgraph")
         xgraph = pyxir.frontend.tvm.from_relay(mod, self.params, postprocessing=None)
+        logger.info("Partition pyxir xgraph")
         xgraph = pyxir.partition(xgraph, targets=[self.dpu_target])
-
+        logger.info("Convert pyxir xgraph back to relay")
         layers = xgraph.get_layers()
         relay_ids = [
             list(np.array(layer.attrs["relay_id"]).flatten())
@@ -158,7 +160,7 @@ def partition_for_vitis_ai(mod, params=None, dpu=None, **opts):
     -------
     ret : Module
     """
-    log.info("Start vitis partitioning in %r.", os.path.abspath(__file__))
+    logger.info("Start vitis partitioning in %r.", os.path.abspath(__file__))
 
     if dpu is None:
         raise ValueError("Please pass Vitis AI DPU identifier to the partitioning function")
@@ -196,7 +198,7 @@ def partition_for_vitis_ai(mod, params=None, dpu=None, **opts):
             return seq(mod)
 
     else:
-        log.debug("Apply transforms one by one....")
+        logger.debug("Apply transforms one by one....")
         pre_partition = tvm.transform.Sequential(
             [
                 transform.RemoveUnusedFunctions(),
@@ -217,22 +219,22 @@ def partition_for_vitis_ai(mod, params=None, dpu=None, **opts):
         )
 
         with tvm.transform.PassContext(opt_level=3):
-            log.debug("Model before transforms")
-            log.debug(mod)
+            logger.debug("Model before transforms")
+            logger.debug(mod)
             mod_prep = pre_partition(mod)
-            log.debug("Model after pre partition transforms")
-            log.debug(mod_prep)
+            logger.debug("Model after pre partition transforms")
+            logger.debug(mod_prep)
             mod_type = types(mod_prep)
             mod_annotate = annotate(mod_type)
-            log.debug("Model after annotation")
-            log.debug(mod_annotate)
+            logger.debug("Model after annotation")
+            logger.debug(mod_annotate)
             mod_merge = merge(mod_annotate)
-            log.debug("Model after merge")
-            log.debug(mod_merge)
+            logger.debug("Model after merge")
+            logger.debug(mod_merge)
             mod_partition = partition(mod_merge)
-            log.debug("Model after partition")
-            log.debug(mod_partition)
+            logger.debug("Model after partition")
+            logger.debug(mod_partition)
             mod_postp = post_partition(mod_partition)
-            log.debug("Model after transforms")
-            log.debug(mod_postp)
+            logger.debug("Model after transforms")
+            logger.debug(mod_postp)
             return mod_postp

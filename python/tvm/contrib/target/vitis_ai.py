@@ -20,6 +20,9 @@
 
 import warnings
 import importlib
+import os
+import logging
+logger = logging.getLogger(__name__)
 
 from tvm.relay.expr import Tuple, Call, TupleGetItem
 import tvm._ffi
@@ -76,6 +79,7 @@ class CodegenVitisAI:
         xgraph_str : str
             Serialized XGraph
         """
+        logger.info("Start vitis ai build.")
         xgraph = pyxir.frontend.tvm.from_relay(
             self.function, params=self.params, postprocessing=None
         )
@@ -120,6 +124,7 @@ class CodegenVitisAI:
 @tvm._ffi.register_func("relay.ext.vitis_ai")
 def vitis_ai_compiler(ref):
     """Create a Vitis-AI runtime from the provided Relay expression"""
+    logger.info("Call vitis ai compiler")
     assert isinstance(ref, tvm.relay.function.Function)
 
     name = str(ref.attrs.global_symbol)
